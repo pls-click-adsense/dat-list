@@ -5,10 +5,10 @@ const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// スキーマに posterId を追加
+// スキーマに posterId (スレ立て主の固定ID) を追加
 const threadSchema = new mongoose.Schema({
     dat: { type: String, unique: true },
-    posterId: { type: String }, // 星を除いたID部分
+    posterId: { type: String }, 
     discoveredAt: { type: Date, default: Date.now },
     aggregated: { type: Boolean, default: false },
     aggregatedAt: { type: Date, default: null }
@@ -18,6 +18,7 @@ const Thread = mongoose.model('Thread', threadSchema);
 mongoose.connect(process.env.MONGO_URI)
     .then(async () => {
         console.log('MongoDB connected');
+        // TTLインデックス: aggregatedAtが入ってから30日後に消える
         await Thread.collection.createIndex(
             { aggregatedAt: 1 },
             { expireAfterSeconds: 30 * 24 * 60 * 60, partialFilterExpression: { aggregatedAt: { $type: "date" } } }
@@ -28,7 +29,6 @@ mongoose.connect(process.env.MONGO_URI)
 
 async function monitor() {
     try {
-        // 読み込み先を subject-metadent.txt に変更
         const res = await axios.get('https://bbs.eddibb.cc/liveedge/subject-metadent.txt', {
             responseType: 'arraybuffer', timeout: 7000
         });
@@ -36,7 +36,8 @@ async function monitor() {
         const lines = content.split('\n');
         
         for (const line of lines) {
-            // 正規表現で dat と [から★の直前まで] を抽出
+            // 例: 1776598292.dat<>タイトル [N5NDPkxP★] (1)
+            // match[1] = dat番号, match[2] = 星なしID (N5NDPkxP)
             const match = line.match(/^(\d+)\.dat<>.*\[(.+?)★\]/);
             
             if (match) {
@@ -66,6 +67,7 @@ const parseDate = (s) => {
     return new Date(d.getTime() - 9 * 60 * 60 * 1000);
 };
 
+// 解析JSが dat と posterId のセットを受け取れるように変更
 app.get('/list', async (req, res) => {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).send("from/to required");
@@ -74,14 +76,20 @@ app.get('/list', async (req, res) => {
             discoveredAt: { $gte: parseDate(from), $lte: parseDate(to) },
             aggregated: { $ne: true }
         }).sort({ discoveredAt: 1 });
-        const ids = dats.map(t => t.dat);
-        if (ids.length > 0) {
+
+        const threadData = dats.map(t => ({
+            dat: t.dat,
+            posterId: t.posterId
+        }));
+
+        if (threadData.length > 0) {
+            const ids = threadData.map(t => t.dat);
             await Thread.updateMany(
                 { dat: { $in: ids } },
                 { $set: { aggregated: true, aggregatedAt: new Date() } }
             );
         }
-        res.json(ids);
+        res.json(threadData);
     } catch (e) { res.status(500).send(e.message); }
 });
 
@@ -92,14 +100,20 @@ app.get('/list/all', async (req, res) => {
         const dats = await Thread.find({
             discoveredAt: { $gte: parseDate(from), $lte: parseDate(to) }
         }).sort({ discoveredAt: 1 });
-        const ids = dats.map(t => t.dat);
-        if (ids.length > 0) {
+
+        const threadData = dats.map(t => ({
+            dat: t.dat,
+            posterId: t.posterId
+        }));
+
+        if (threadData.length > 0) {
+            const ids = threadData.map(t => t.dat);
             await Thread.updateMany(
                 { dat: { $in: ids } },
                 { $set: { aggregated: true, aggregatedAt: new Date() } }
             );
         }
-        res.json(ids);
+        res.json(threadData);
     } catch (e) { res.status(500).send(e.message); }
 });
 
