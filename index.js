@@ -5,8 +5,10 @@ const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// スキーマに posterId を追加
 const threadSchema = new mongoose.Schema({
     dat: { type: String, unique: true },
+    posterId: { type: String }, // 星を除いたID部分
     discoveredAt: { type: Date, default: Date.now },
     aggregated: { type: Boolean, default: false },
     aggregatedAt: { type: Date, default: null }
@@ -26,22 +28,34 @@ mongoose.connect(process.env.MONGO_URI)
 
 async function monitor() {
     try {
-        const res = await axios.get('https://bbs.eddibb.cc/liveedge/subject.txt', {
+        // 読み込み先を subject-metadent.txt に変更
+        const res = await axios.get('https://bbs.eddibb.cc/liveedge/subject-metadent.txt', {
             responseType: 'arraybuffer', timeout: 7000
         });
         const content = iconv.decode(res.data, 'shift-jis');
         const lines = content.split('\n');
+        
         for (const line of lines) {
-            const match = line.match(/(\d+)\.dat/);
+            // 正規表現で dat と [から★の直前まで] を抽出
+            const match = line.match(/^(\d+)\.dat<>.*\[(.+?)★\]/);
+            
             if (match) {
+                const dat = match[1];
+                const posterId = match[2];
+
                 await Thread.updateOne(
-                    { dat: match[1] },
-                    { $setOnInsert: { discoveredAt: new Date() } },
+                    { dat: dat },
+                    { 
+                        $setOnInsert: { 
+                            discoveredAt: new Date(),
+                            posterId: posterId 
+                        } 
+                    },
                     { upsert: true }
                 );
             }
         }
-        console.log(`[${new Date().toLocaleTimeString()}] Checked subject.txt`);
+        console.log(`[${new Date().toLocaleTimeString()}] Checked subject-metadent.txt`);
     } catch (e) { console.error("Monitor error:", e.message); }
 }
 
