@@ -64,7 +64,7 @@ app.get('/list', async (req, res) => {
     } catch (e) { res.status(500).send(e.message); }
 });
 
-// 全部返す
+// 全部返してフラグを立てる
 app.get('/list/all', async (req, res) => {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).send("from/to required");
@@ -72,7 +72,14 @@ app.get('/list/all', async (req, res) => {
         const dats = await Thread.find({
             discoveredAt: { $gte: parseDate(from), $lte: parseDate(to) }
         }).sort({ discoveredAt: 1 });
-        res.json(dats.map(t => t.dat));
+        const ids = dats.map(t => t.dat);
+        if (ids.length > 0) {
+            await Thread.updateMany(
+                { dat: { $in: ids } },
+                { $set: { aggregated: true } }
+            );
+        }
+        res.json(ids);
     } catch (e) { res.status(500).send(e.message); }
 });
 
