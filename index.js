@@ -5,21 +5,29 @@ const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('MongoDB connected'))
-    .catch(err => console.error(err));
-
 const threadSchema = new mongoose.Schema({
     dat: { type: String, unique: true },
     discoveredAt: { type: Date, default: Date.now },
-    aggregated: { type: Boolean, default: false }
+    aggregated: { type: Boolean, default: false },
+    aggregatedAt: { type: Date, default: null }
 });
 const Thread = mongoose.model('Thread', threadSchema);
 
+mongoose.connect(process.env.MONGO_URI)
+    .then(async () => {
+        console.log('MongoDB connected');
+        await Thread.collection.createIndex(
+            { aggregatedAt: 1 },
+            { expireAfterSeconds: 30 * 24 * 60 * 60, partialFilterExpression: { aggregatedAt: { $type: "date" } } }
+        );
+        monitor();
+    })
+    .catch(err => console.error(err));
+
 async function monitor() {
     try {
-        const res = await axios.get('https://bbs.eddibb.cc/liveedge/subject.txt', { 
-            responseType: 'arraybuffer', timeout: 7000 
+        const res = await axios.get('https://bbs.eddibb.cc/liveedge/subject.txt', {
+            responseType: 'arraybuffer', timeout: 7000
         });
         const content = iconv.decode(res.data, 'shift-jis');
         const lines = content.split('\n');
@@ -40,11 +48,10 @@ async function monitor() {
 setInterval(monitor, 3 * 60 * 1000);
 
 const parseDate = (s) => {
-    const d = new Date(2000+parseInt(s.slice(0,2)), s.slice(2,4)-1, s.slice(4,6), s.slice(6,8), s.slice(8,10));
+    const d = new Date(2000 + parseInt(s.slice(0, 2)), s.slice(2, 4) - 1, s.slice(4, 6), s.slice(6, 8), s.slice(8, 10));
     return new Date(d.getTime() - 9 * 60 * 60 * 1000);
 };
 
-// 未集計のみ返してフラグを立てる
 app.get('/list', async (req, res) => {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).send("from/to required");
@@ -57,14 +64,13 @@ app.get('/list', async (req, res) => {
         if (ids.length > 0) {
             await Thread.updateMany(
                 { dat: { $in: ids } },
-                { $set: { aggregated: true } }
+                { $set: { aggregated: true, aggregatedAt: new Date() } }
             );
         }
         res.json(ids);
     } catch (e) { res.status(500).send(e.message); }
 });
 
-// 全部返してフラグを立てる
 app.get('/list/all', async (req, res) => {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).send("from/to required");
@@ -76,7 +82,7 @@ app.get('/list/all', async (req, res) => {
         if (ids.length > 0) {
             await Thread.updateMany(
                 { dat: { $in: ids } },
-                { $set: { aggregated: true } }
+                { $set: { aggregated: true, aggregatedAt: new Date() } }
             );
         }
         res.json(ids);
@@ -84,4 +90,4 @@ app.get('/list/all', async (req, res) => {
 });
 
 app.get('/', (req, res) => res.send("Running..."));
-app.listen(PORT, () => monitor());
+app.listen(PORT);
