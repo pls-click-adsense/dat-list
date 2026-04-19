@@ -47,8 +47,10 @@ app.get('/list', async (req, res) => {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).send("from/to required");
 
-    const parseDate = (s) => new Date(2000+parseInt(s.slice(0,2)), s.slice(2,4)-1, s.slice(4,6), s.slice(6,8), s.slice(8,10));
-    
+    const parseDate = (s) => {
+    const d = new Date(2000+parseInt(s.slice(0,2)), s.slice(2,4)-1, s.slice(4,6), s.slice(6,8), s.slice(8,10));
+    return new Date(d.getTime() - 9 * 60 * 60 * 1000);
+};    
     try {
         const dats = await Thread.find({
             discoveredAt: { $gte: parseDate(from), $lte: parseDate(to) }
